@@ -3,91 +3,74 @@
 
 #include "secrets.h"
 
-const char* ssid     = STASSID;
-const char* password = STAPSK;
+const char* wifiSsid = WIFISSID;
+const char* wifiPass = WIFIPASS;
 
-const char* host = "djxmmx.net";
-const uint16_t port = 17;
+const char* mqttIP   = MQTTIP;
+const char* mqttUser = MQTTUSER;
+const char* mqttPass = MQTTPASS;
 
+const char* deviceID = "BME680";
+
+WiFiClient net;
 MQTTClient client;
 
-void setup() {
-  Serial.begin(115200);
+unsigned long lastMillis = 0;
 
-  delay(5000);
-  // We start by connecting to a WiFi network
-
-  Serial.println();
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-
-  /* Explicitly set the ESP8266 to be a WiFi-client, otherwise, it by default,
-     would try to act as both a client and an access-point and could cause
-     network-issues with your other WiFi-devices on your WiFi-network. */
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-
+void connect()
+{
+  Serial.print("checking wifi connection...");
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
     Serial.print(".");
+    delay(1000);
   }
 
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+  Serial.print("\nconnecting...");
+  while (!client.connect(deviceID, mqttUser, mqttPass))
+  {
+    Serial.print(".");
+    delay(1000);
+  }
 
-  client.subscribe("/hello");
-  client.begin("broker.shiftr.io", WiFi);
+  Serial.println("\nconnected!");
+
+  client.subscribe("stat/light_dinnertable/RESULT");
+  // client.unsubscribe("/hello");
 }
 
-void loop() {
-  Serial.print("connecting to ");
-  Serial.print(host);
-  Serial.print(':');
-  Serial.println(port);
+void messageReceived(String &topic, String &payload)
+{
+  Serial.println("incoming: " + topic + " - " + payload);
 
-  // Use WiFiClient class to create TCP connections
-  WiFiClient client;
-  if (!client.connect(host, port)) {
-    Serial.println("connection failed");
-    delay(5000);
-    return;
-  }
+  // Note: Do not use the client in the callback to publish, subscribe or
+  // unsubscribe as it may cause deadlocks when other things arrive while
+  // sending and receiving acknowledgments. Instead, change a global variable,
+  // or push to a queue and handle it in the loop after calling `client.loop()`.
+}
 
+void setup()
+{
+  delay(5000);
+  Serial.begin(115200);
+  WiFi.begin(wifiSsid, wifiPass);
+  client.begin(mqttIP, net);
+  client.onMessage(messageReceived);
+
+  connect();
+}
+
+void loop()
+{
   client.loop();
-  client.publish("/hello", "world");
 
-  // This will send a string to the server
-  Serial.println("sending data to server");
-  if (client.connected()) {
-    client.println("hello from ESP8266");
+  if (!client.connected()) {
+    connect();
   }
 
-  // wait for data to be available
-  unsigned long timeout = millis();
-  while (client.available() == 0) {
-    if (millis() - timeout > 5000) {
-      Serial.println(">>> Client Timeout !");
-      client.stop();
-      delay(60000);
-      return;
-    }
+  if (millis() - lastMillis > 5000) {
+    lastMillis = millis();
+    client.publish("sensors/BME680/string", "fooo");
+    client.publish("sensors/BME680/millis", String(millis()));
+
   }
-
-  // Read all the lines of the reply from server and print them to Serial
-  Serial.println("receiving from remote server");
-  // not testing 'client.connected()' since we do not need to send data here
-  while (client.available()) {
-    char ch = static_cast<char>(client.read());
-    Serial.print(ch);
-  }
-
-  // Close the connection
-  Serial.println();
-  Serial.println("closing connection");
-  client.stop();
-
-  delay(300000); // execute once every 5 minutes, don't flood remote service
 }
