@@ -1,15 +1,15 @@
 #include <ESP8266WiFi.h>
-#include "wifi.h"
-/*
-    This sketch establishes a TCP connection to a "quote of the day" service.
-    It sends a "hello" message, and then prints received data.
-*/
+#include <MQTT.h>
+
+#include "secrets.h"
 
 const char* ssid     = STASSID;
 const char* password = STAPSK;
 
 const char* host = "djxmmx.net";
 const uint16_t port = 17;
+
+MQTTClient client;
 
 void setup() {
   Serial.begin(115200);
@@ -37,6 +37,9 @@ void setup() {
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
+
+  client.subscribe("/hello");
+  client.begin("broker.shiftr.io", WiFi);
 }
 
 void loop() {
@@ -52,6 +55,9 @@ void loop() {
     delay(5000);
     return;
   }
+
+  client.loop();
+  client.publish("/hello", "world");
 
   // This will send a string to the server
   Serial.println("sending data to server");
