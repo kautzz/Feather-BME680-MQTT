@@ -1,6 +1,5 @@
 #include <ESP8266WiFi.h>
 #include <MQTT.h>
-
 #include "secrets.h"
 
 const char* wifiSsid = WIFISSID;
@@ -15,27 +14,54 @@ const char* deviceID = "BME680";
 WiFiClient net;
 MQTTClient client;
 
-unsigned long lastMillis = 0;
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include "Adafruit_BME680.h"
+
+#define SEALEVELPRESSURE_HPA (1030.00)
+Adafruit_BME680 bme;
+
+unsigned long lastUpdate = 0;
 
 void connect()
 {
-  Serial.print("checking wifi connection...");
+  Serial.print("* Checking WIFI connection ");
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
+    digitalWrite(0, LOW);
+    // TODO handle wifi disconnect
     delay(1000);
   }
 
-  Serial.print("\nconnecting...");
+  Serial.println("");
+  Serial.print("* Connecting to MQTT as: " + String(deviceID) + " ");
   while (!client.connect(deviceID, mqttUser, mqttPass))
   {
     Serial.print(".");
+    digitalWrite(0, LOW);
     delay(1000);
   }
 
-  Serial.println("\nconnected!");
+  Serial.println("");
+  Serial.println("* WIFI & MQTT CONNECTED");
+
+  if (!bme.begin()) {
+    Serial.println("* Could not find BME680 sensor, check wiring!");
+    digitalWrite(0, LOW);
+
+  } else {
+    Serial.println("* BME680 SENSOR CONNECTED");
+    // Set up oversampling and filter initialization
+    bme.setTemperatureOversampling(BME680_OS_16X);
+    bme.setHumidityOversampling(BME680_OS_16X);
+    bme.setPressureOversampling(BME680_OS_16X);
+    bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
+    bme.setGasHeater(320, 300); // 320*C for 300 ms
+  }
 
   client.subscribe("stat/light_dinnertable/RESULT");
-  // client.unsubscribe("/hello");
+  digitalWrite(0, HIGH);
+
 }
 
 void messageReceived(String &topic, String &payload)
@@ -50,8 +76,15 @@ void messageReceived(String &topic, String &payload)
 
 void setup()
 {
+  pinMode(0, OUTPUT);
+  pinMode(2, OUTPUT);
+
+  digitalWrite(2,HIGH);
+
   delay(5000);
+
   Serial.begin(115200);
+  Serial.println("* Connecting to WIFI: " + String(wifiSsid));
   WiFi.begin(wifiSsid, wifiPass);
   client.begin(mqttIP, net);
   client.onMessage(messageReceived);
@@ -62,15 +95,46 @@ void setup()
 void loop()
 {
   client.loop();
+  if (!client.connected()) { connect(); }
 
-  if (!client.connected()) {
-    connect();
-  }
+  if (millis() - lastUpdate > 5000)
+  {
+    if (! bme.performReading())
+    {
+      Serial.println("* Failed to perform reading :(");
+      connect();
+    } else {
 
-  if (millis() - lastMillis > 5000) {
-    lastMillis = millis();
-    client.publish("sensors/BME680/string", "fooo");
-    client.publish("sensors/BME680/millis", String(millis()));
+      digitalWrite(2, LOW);
+      Serial.println("");
 
+      Serial.print("> Sending: temperature = ");
+      Serial.print(bme.temperature);
+      Serial.println(" *C");
+      client.publish("SENSORS/BME680/temperature", String(bme.temperature));
+
+      Serial.print("> Sending: pressure = ");
+      Serial.print(bme.pressure / 100.0);
+      Serial.println(" hPa");
+      client.publish("SENSORS/BME680/pressure", String(bme.pressure / 100.0));
+
+      Serial.print("> Sending: humidity = ");
+      Serial.print(bme.humidity);
+      Serial.println(" %");
+      client.publish("SENSORS/BME680/humidity", String(bme.humidity));
+
+      Serial.print("> Sending gas_resistance = ");
+      Serial.print(bme.gas_resistance / 1000.0);
+      Serial.println(" KOhms");
+      client.publish("SENSORS/BME680/gas_resistance", String(bme.gas_resistance / 1000.0));
+
+      Serial.print("> Sending approx. altitude = ");
+      Serial.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
+      Serial.println(" m");
+      client.publish("SENSORS/BME680/altitude", String(bme.readAltitude(SEALEVELPRESSURE_HPA)));
+
+      digitalWrite(2, HIGH);
+    }
+    lastUpdate = millis();
   }
 }
