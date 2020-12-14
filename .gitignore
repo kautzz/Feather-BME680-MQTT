@@ -1,1 +1,6 @@
 secrets.h
+*.bin
+*.eep
+*.elf
+*.hex
+*Monitor.*

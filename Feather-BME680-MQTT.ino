@@ -18,8 +18,10 @@ MQTTClient client;
 #include <Adafruit_Sensor.h>
 #include "Adafruit_BME680.h"
 
-#define SEALEVELPRESSURE_HPA (1030.00)
+#define SEALEVELPRESSURE_HPA (1015.00)
 Adafruit_BME680 bme;
+
+int vBatt = 0;
 
 unsigned long lastUpdate = 0;
 
@@ -35,16 +37,21 @@ void connect()
 
   Serial.println("");
   Serial.print("* Connecting to MQTT as: " + String(deviceID) + " ");
+  int i = 0;
   while (!client.connect(deviceID, mqttUser, mqttPass))
   {
     Serial.print(".");
     digitalWrite(0, LOW);
     delay(1000);
+    i++;
+    if(i == 3)
+    {
+      Serial.println("* NO MQTT MODE");
+      break;
+    }
   }
 
   Serial.println("");
-  Serial.println("* WIFI & MQTT CONNECTED");
-
   if (!bme.begin()) {
     Serial.println("* Could not find BME680 sensor, check wiring!");
     digitalWrite(0, LOW);
@@ -99,6 +106,21 @@ void loop()
 
   if (millis() - lastUpdate > 5000)
   {
+    Serial.println("% ---- ");
+
+
+    vBatt = analogRead(A0);
+    Serial.print("> Sending: battery voltage = ");
+    Serial.print(vBatt*5.5/1000);
+    Serial.println(" V");
+    client.publish("SENSORS/BME680/vBatt", String(vBatt*5.5/1000));
+
+    vBatt = map(vBatt, 580, 774, 0, 100);
+    Serial.print("> Sending: battery percentage = ");
+    Serial.print(vBatt);
+    Serial.println(" %");
+    client.publish("SENSORS/BME680/pBatt", String(vBatt));
+
     if (! bme.performReading())
     {
       Serial.println("* Failed to perform reading :(");
@@ -106,7 +128,6 @@ void loop()
     } else {
 
       digitalWrite(2, LOW);
-      Serial.println("");
 
       Serial.print("> Sending: temperature = ");
       Serial.print(bme.temperature);
@@ -123,15 +144,16 @@ void loop()
       Serial.println(" %");
       client.publish("SENSORS/BME680/humidity", String(bme.humidity));
 
-      Serial.print("> Sending gas_resistance = ");
+      Serial.print("> Sending: gas_resistance = ");
       Serial.print(bme.gas_resistance / 1000.0);
       Serial.println(" KOhms");
       client.publish("SENSORS/BME680/gas_resistance", String(bme.gas_resistance / 1000.0));
 
-      Serial.print("> Sending approx. altitude = ");
+      Serial.print("> Sending: approx. altitude = ");
       Serial.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
       Serial.println(" m");
       client.publish("SENSORS/BME680/altitude", String(bme.readAltitude(SEALEVELPRESSURE_HPA)));
+
 
       digitalWrite(2, HIGH);
     }
